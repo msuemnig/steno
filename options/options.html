@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="options.css">
+  <title>Steno — Scripts</title>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="header-row">
+        <div class="brand">
+          <span class="brand-mark">&gt;_</span>
+          <h1>Steno</h1>
+        </div>
+        <div class="header-actions">
+          <div class="theme-picker" id="theme-picker">
+            <button data-theme="system">System</button>
+            <button data-theme="dark">Dark</button>
+            <button data-theme="light">Light</button>
+          </div>
+          <button id="btn-export" class="btn btn-ghost">Export</button>
+          <label class="btn btn-ghost" for="import-file">Import</label>
+          <input type="file" id="import-file" accept=".json" hidden>
+        </div>
+      </div>
+    </header>
+
+    <!-- Two-panel layout -->
+    <div class="panels" id="panels">
+      <!-- Left: site nav -->
+      <nav class="site-nav" id="site-nav">
+        <div class="nav-header">
+          <span class="nav-title">Sites</span>
+        </div>
+        <ul class="nav-list" id="nav-list"></ul>
+      </nav>
+
+      <!-- Right: detail panel -->
+      <main class="detail-panel" id="detail-panel">
+        <p class="empty-detail" id="empty-detail">Select a site to view its scripts.</p>
+      </main>
+    </div>
+
+    <!-- Script detail view (hidden by default) -->
+    <div class="script-detail hidden" id="script-detail">
+      <button class="btn-back-link" id="btn-back-to-site">&larr; Back</button>
+      <div class="script-detail-header">
+        <h2 id="detail-script-name"></h2>
+        <button id="btn-detail-replay" class="btn btn-primary btn-sm">Replay</button>
+      </div>
+      <p class="script-detail-meta" id="detail-script-meta"></p>
+      <div class="field-table-wrap">
+        <table class="field-table" id="field-table">
+          <thead>
+            <tr>
+              <th class="col-handle"></th>
+              <th class="col-order">#</th>
+              <th class="col-action">Action</th>
+              <th>Selector</th>
+              <th>Type</th>
+              <th>Value</th>
+              <th>Label</th>
+            </tr>
+          </thead>
+          <tbody id="field-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

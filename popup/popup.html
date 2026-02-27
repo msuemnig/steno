@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="popup.css">
+  <title>Steno</title>
+</head>
+<body>
+  <!-- Idle state -->
+  <div id="view-idle">
+    <header>
+      <div class="brand">
+        <span class="brand-mark">&gt;_</span>
+        <span class="brand-name">Steno</span>
+      </div>
+    </header>
+    <div class="field-group">
+      <label for="script-search">Script</label>
+      <div class="search-select" id="search-select">
+        <input type="text" id="script-search" placeholder="search scripts..." autocomplete="off">
+        <ul class="search-list hidden" id="search-list"></ul>
+      </div>
+    </div>
+    <div class="actions">
+      <button id="btn-record" class="btn btn-record">
+        <span class="btn-dot"></span>Record
+      </button>
+      <button id="btn-fill" class="btn btn-primary" disabled>Replay</button>
+    </div>
+    <footer>
+      <a id="link-options" href="#">Manage scripts</a>
+    </footer>
+  </div>
+
+  <!-- Recording state -->
+  <div id="view-recording" class="hidden">
+    <header>
+      <div class="brand">
+        <span class="brand-mark">&gt;_</span>
+        <span class="brand-name">Steno</span>
+      </div>
+      <span class="rec-indicator">
+        <span class="rec-dot"></span>REC
+      </span>
+    </header>
+    <div class="recording-info">
+      <span class="field-counter" id="field-count">0</span>
+      <span class="field-counter-label">steps captured</span>
+    </div>
+    <div class="actions">
+      <button id="btn-stop" class="btn btn-primary">Stop &amp; save</button>
+      <button id="btn-discard" class="btn btn-ghost">Discard</button>
+    </div>
+  </div>
+
+  <!-- Save state -->
+  <div id="view-save" class="hidden">
+    <header>
+      <div class="brand">
+        <span class="brand-mark">&gt;_</span>
+        <span class="brand-name">Save recording</span>
+      </div>
+    </header>
+    <div class="field-group">
+      <label for="script-name">Name</label>
+      <input type="text" id="script-name" placeholder="e.g. Valid Adult Applicant">
+    </div>
+    <p class="meta" id="save-site-hint"></p>
+    <p class="meta"><span id="save-field-count">0</span> steps captured</p>
+    <div class="actions">
+      <button id="btn-save" class="btn btn-primary">Save</button>
+      <button id="btn-save-discard" class="btn btn-ghost">Discard</button>
+    </div>
+  </div>
+
+  <!-- Replay results -->
+  <div id="view-results" class="hidden">
+    <header>
+      <div class="brand">
+        <span class="brand-mark">&gt;_</span>
+        <span class="brand-name">Steno</span>
+      </div>
+    </header>
+    <div class="results">
+      <p id="result-filled" class="result-ok"></p>
+      <p id="result-skipped" class="result-warn hidden"></p>
+      <ul id="result-warnings" class="warn-list hidden"></ul>
+    </div>
+    <div class="actions">
+      <button id="btn-fill-again" class="btn btn-primary">Replay again</button>
+      <button id="btn-back" class="btn btn-ghost">Back</button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
