@@ -1,76 +1,105 @@
 /**
- * Storage abstraction layer — v2: sites, personas, scripts.
- * Uses chrome.storage.sync with chunked storage for scripts.
- * Migrates from v1 qafill_profiles on first load.
+ * Storage abstraction layer — v3: sites, personas, scripts.
+ * Uses chrome.storage.local (device-only). Paid users sync via API.
+ * Migrates from v1 qafill_profiles and v2 sync storage on first load.
  */
 const StorageService = {
   // ─── Constants ──────────────────────────────────────────
-  SCHEMA_VERSION: 2,
-  CHUNK_SIZE: 7000, // ~7KB per chunk, well under 8KB limit
-  FREE_MAX_SCRIPTS: 5,
+  SCHEMA_VERSION: 3,
+  CHUNK_SIZE: 7000, // ~7KB per chunk
+  FREE_MAX_SCRIPTS: 2,
 
   // ─── Migration ──────────────────────────────────────────
 
   async migrateIfNeeded() {
-    const data = await chrome.storage.sync.get('steno_schema_version');
-    if (data.steno_schema_version >= this.SCHEMA_VERSION) return;
+    const data = await chrome.storage.local.get('steno_schema_version');
+    const currentVersion = data.steno_schema_version || 0;
+    if (currentVersion >= this.SCHEMA_VERSION) return;
 
-    const legacy = await chrome.storage.sync.get('qafill_profiles');
-    const profiles = legacy.qafill_profiles || [];
+    // ─── v2 → v3: move data from chrome.storage.sync to chrome.storage.local
+    if (currentVersion === 2 || currentVersion === 0) {
+      const syncData = await chrome.storage.sync.get(null); // get everything from sync
 
-    if (profiles.length > 0) {
-      const sites = [];
-      const scripts = [];
-
-      for (const p of profiles) {
-        let siteId = null;
-        if (p.url_hint) {
-          try {
-            const hostname = new URL(p.url_hint).hostname;
-            let site = sites.find((s) => s.hostname === hostname);
-            if (!site) {
-              site = {
-                id: crypto.randomUUID(),
-                hostname,
-                label: hostname,
-                created_at: p.created_at || new Date().toISOString(),
-                updated_at: p.updated_at || new Date().toISOString(),
-              };
-              sites.push(site);
-            }
-            siteId = site.id;
-          } catch { /* invalid URL, leave site_id null */ }
+      // Check for v2 data in sync storage
+      if (syncData.steno_schema_version === 2) {
+        // Copy sites and personas
+        if (syncData.steno_sites) {
+          await chrome.storage.local.set({ steno_sites: syncData.steno_sites });
+        }
+        if (syncData.steno_personas) {
+          await chrome.storage.local.set({ steno_personas: syncData.steno_personas });
         }
 
-        scripts.push({
-          id: p.id,
-          site_id: siteId,
-          persona_id: null,
-          name: p.name,
-          created_by: p.created_by || '',
-          url_hint: p.url_hint || '',
-          fields: p.fields || [],
-          created_at: p.created_at || new Date().toISOString(),
-          updated_at: p.updated_at || new Date().toISOString(),
-        });
-      }
+        // Copy chunked scripts
+        const count = syncData.steno_scripts_count || 0;
+        if (count > 0) {
+          const chunkData = { steno_scripts_count: count };
+          for (let i = 0; i < count; i++) {
+            const key = `steno_scripts_${i}`;
+            if (syncData[key]) chunkData[key] = syncData[key];
+          }
+          await chrome.storage.local.set(chunkData);
+        }
 
-      await chrome.storage.sync.set({ steno_sites: sites });
-      await chrome.storage.sync.set({ steno_personas: [] });
-      await this._writeChunked(scripts);
-    } else {
-      // No legacy data — initialize empty
-      const existing = await chrome.storage.sync.get(['steno_sites', 'steno_personas']);
-      if (!existing.steno_sites) await chrome.storage.sync.set({ steno_sites: [] });
-      if (!existing.steno_personas) await chrome.storage.sync.set({ steno_personas: [] });
-      const count = await chrome.storage.sync.get('steno_scripts_count');
-      if (count.steno_scripts_count === undefined) {
-        await chrome.storage.sync.set({ steno_scripts_count: 0 });
+        // Copy theme preference
+        if (syncData.steno_theme) {
+          await chrome.storage.local.set({ steno_theme: syncData.steno_theme });
+        }
+      } else if (syncData.qafill_profiles) {
+        // ─── v1 → v3: migrate legacy profiles directly to local
+        const profiles = syncData.qafill_profiles;
+        const sites = [];
+        const scripts = [];
+
+        for (const p of profiles) {
+          let siteId = null;
+          if (p.url_hint) {
+            try {
+              const hostname = new URL(p.url_hint).hostname;
+              let site = sites.find((s) => s.hostname === hostname);
+              if (!site) {
+                site = {
+                  id: crypto.randomUUID(),
+                  hostname,
+                  label: hostname,
+                  created_at: p.created_at || new Date().toISOString(),
+                  updated_at: p.updated_at || new Date().toISOString(),
+                };
+                sites.push(site);
+              }
+              siteId = site.id;
+            } catch { /* invalid URL, leave site_id null */ }
+          }
+
+          scripts.push({
+            id: p.id,
+            site_id: siteId,
+            persona_id: null,
+            name: p.name,
+            created_by: p.created_by || '',
+            url_hint: p.url_hint || '',
+            fields: p.fields || [],
+            created_at: p.created_at || new Date().toISOString(),
+            updated_at: p.updated_at || new Date().toISOString(),
+          });
+        }
+
+        await chrome.storage.local.set({ steno_sites: sites });
+        await chrome.storage.local.set({ steno_personas: [] });
+        await this._writeChunked(scripts);
       }
     }
 
-    await chrome.storage.sync.set({ steno_schema_version: this.SCHEMA_VERSION });
-    // Legacy data left intact as backup
+    // Initialize empty collections if missing
+    const existing = await chrome.storage.local.get(['steno_sites', 'steno_personas']);
+    if (!existing.steno_sites) await chrome.storage.local.set({ steno_sites: [] });
+    if (!existing.steno_personas) await chrome.storage.local.set({ steno_personas: [] });
+    const count = await chrome.storage.local.get('steno_scripts_count');
+    if (count.steno_scripts_count === undefined) {
+      await chrome.storage.local.set({ steno_scripts_count: 0 });
+    }
+
+    await chrome.storage.local.set({ steno_schema_version: this.SCHEMA_VERSION });
   },
 
   // ─── Chunked Storage for Scripts ────────────────────────
@@ -83,14 +112,14 @@ const StorageService = {
     }
 
     // Remove old chunks first
-    const oldData = await chrome.storage.sync.get('steno_scripts_count');
+    const oldData = await chrome.storage.local.get('steno_scripts_count');
     const oldCount = oldData.steno_scripts_count || 0;
     if (oldCount > 0) {
       const keysToRemove = [];
       for (let i = 0; i < oldCount; i++) {
         keysToRemove.push(`steno_scripts_${i}`);
       }
-      await chrome.storage.sync.remove(keysToRemove);
+      await chrome.storage.local.remove(keysToRemove);
     }
 
     // Write new chunks
@@ -98,11 +127,11 @@ const StorageService = {
     for (let i = 0; i < chunks.length; i++) {
       writeObj[`steno_scripts_${i}`] = chunks[i];
     }
-    await chrome.storage.sync.set(writeObj);
+    await chrome.storage.local.set(writeObj);
   },
 
   async _readChunked() {
-    const data = await chrome.storage.sync.get('steno_scripts_count');
+    const data = await chrome.storage.local.get('steno_scripts_count');
     const count = data.steno_scripts_count || 0;
     if (count === 0) return [];
 
@@ -110,7 +139,7 @@ const StorageService = {
     for (let i = 0; i < count; i++) {
       keys.push(`steno_scripts_${i}`);
     }
-    const chunks = await chrome.storage.sync.get(keys);
+    const chunks = await chrome.storage.local.get(keys);
     let json = '';
     for (let i = 0; i < count; i++) {
       json += chunks[`steno_scripts_${i}`] || '';
@@ -124,9 +153,14 @@ const StorageService = {
 
   // ─── Site CRUD ──────────────────────────────────────────
 
-  async getSites() {
-    const data = await chrome.storage.sync.get('steno_sites');
+  async _getRawSites() {
+    const data = await chrome.storage.local.get('steno_sites');
     return data.steno_sites || [];
+  },
+
+  async getSites() {
+    const sites = await this._getRawSites();
+    return sites.filter((s) => !s.deleted_at);
   },
 
   async getSite(id) {
@@ -140,47 +174,64 @@ const StorageService = {
   },
 
   async saveSite(site) {
-    const sites = await this.getSites();
-    const index = sites.findIndex((s) => s.id === site.id);
+    const all = await this._getRawSites();
+    const index = all.findIndex((s) => s.id === site.id);
     if (index >= 0) {
       site.updated_at = new Date().toISOString();
-      sites[index] = site;
+      all[index] = site;
     } else {
       site.created_at = site.created_at || new Date().toISOString();
       site.updated_at = site.created_at;
-      sites.push(site);
+      all.push(site);
     }
-    await chrome.storage.sync.set({ steno_sites: sites });
+    await chrome.storage.local.set({ steno_sites: all });
     return site;
   },
 
   async deleteSite(id) {
-    let sites = await this.getSites();
-    sites = sites.filter((s) => s.id !== id);
-    await chrome.storage.sync.set({ steno_sites: sites });
+    const now = new Date().toISOString();
 
-    // Cascade: delete personas for this site
-    let personas = await this.getPersonas();
-    personas = personas.filter((p) => p.site_id !== id);
-    await chrome.storage.sync.set({ steno_personas: personas });
+    // Soft-delete the site
+    const allSites = await this._getRawSites();
+    const site = allSites.find((s) => s.id === id);
+    if (site) {
+      site.deleted_at = now;
+      site.updated_at = now;
+    }
+    await chrome.storage.local.set({ steno_sites: allSites });
 
-    // Cascade: move scripts to Ungrouped (null site_id), clear persona_id
-    const scripts = await this._readChunked();
-    for (const s of scripts) {
-      if (s.site_id === id) {
-        s.site_id = null;
-        s.persona_id = null;
-        s.updated_at = new Date().toISOString();
+    // Cascade: soft-delete personas for this site
+    const allPersonas = await this._getRawPersonas();
+    for (const p of allPersonas) {
+      if (p.site_id === id && !p.deleted_at) {
+        p.deleted_at = now;
+        p.updated_at = now;
       }
     }
-    await this._writeChunked(scripts);
+    await chrome.storage.local.set({ steno_personas: allPersonas });
+
+    // Cascade: move scripts to Ungrouped (null site_id), clear persona_id
+    const allScripts = await this._readChunked();
+    for (const s of allScripts) {
+      if (s.site_id === id && !s.deleted_at) {
+        s.site_id = null;
+        s.persona_id = null;
+        s.updated_at = now;
+      }
+    }
+    await this._writeChunked(allScripts);
   },
 
   // ─── Persona CRUD ──────────────────────────────────────
 
-  async getPersonas() {
-    const data = await chrome.storage.sync.get('steno_personas');
+  async _getRawPersonas() {
+    const data = await chrome.storage.local.get('steno_personas');
     return data.steno_personas || [];
+  },
+
+  async getPersonas() {
+    const personas = await this._getRawPersonas();
+    return personas.filter((p) => !p.deleted_at);
   },
 
   async getPersonasBySite(siteId) {
@@ -189,40 +240,48 @@ const StorageService = {
   },
 
   async savePersona(persona) {
-    const personas = await this.getPersonas();
-    const index = personas.findIndex((p) => p.id === persona.id);
+    const all = await this._getRawPersonas();
+    const index = all.findIndex((p) => p.id === persona.id);
     if (index >= 0) {
       persona.updated_at = new Date().toISOString();
-      personas[index] = persona;
+      all[index] = persona;
     } else {
       persona.created_at = persona.created_at || new Date().toISOString();
       persona.updated_at = persona.created_at;
-      personas.push(persona);
+      all.push(persona);
     }
-    await chrome.storage.sync.set({ steno_personas: personas });
+    await chrome.storage.local.set({ steno_personas: all });
     return persona;
   },
 
   async deletePersona(id) {
-    let personas = await this.getPersonas();
-    personas = personas.filter((p) => p.id !== id);
-    await chrome.storage.sync.set({ steno_personas: personas });
+    const now = new Date().toISOString();
+
+    // Soft-delete the persona
+    const allPersonas = await this._getRawPersonas();
+    const persona = allPersonas.find((p) => p.id === id);
+    if (persona) {
+      persona.deleted_at = now;
+      persona.updated_at = now;
+    }
+    await chrome.storage.local.set({ steno_personas: allPersonas });
 
     // Cascade: scripts lose their persona_id (stay under same site)
-    const scripts = await this._readChunked();
-    for (const s of scripts) {
-      if (s.persona_id === id) {
+    const allScripts = await this._readChunked();
+    for (const s of allScripts) {
+      if (s.persona_id === id && !s.deleted_at) {
         s.persona_id = null;
-        s.updated_at = new Date().toISOString();
+        s.updated_at = now;
       }
     }
-    await this._writeChunked(scripts);
+    await this._writeChunked(allScripts);
   },
 
   // ─── Script CRUD ────────────────────────────────────────
 
   async getScripts() {
-    return await this._readChunked();
+    const all = await this._readChunked();
+    return all.filter((s) => !s.deleted_at);
   },
 
   async getScript(id) {
@@ -230,30 +289,51 @@ const StorageService = {
     return scripts.find((s) => s.id === id) || null;
   },
 
-  async saveScript(script) {
-    const scripts = await this.getScripts();
-    const index = scripts.findIndex((s) => s.id === script.id);
-    if (index >= 0) {
+  async saveScript(script, { force = false } = {}) {
+    const allScripts = await this._readChunked();
+    const liveScripts = allScripts.filter((s) => !s.deleted_at);
+    const fullIndex = allScripts.findIndex((s) => s.id === script.id);
+    const liveIndex = liveScripts.findIndex((s) => s.id === script.id);
+
+    if (liveIndex >= 0) {
+      // UPDATE — enforce edit restriction for free tier
+      if (!force) {
+        const isPaid = typeof ApiService !== 'undefined' && await this._isPaidUser();
+        if (!isPaid) {
+          const sorted = [...liveScripts].sort((a, b) => a.created_at.localeCompare(b.created_at));
+          const activeIds = sorted.slice(0, this.FREE_MAX_SCRIPTS).map((s) => s.id);
+          if (!activeIds.includes(script.id)) {
+            throw new Error('Upgrade to edit this script. Free plan allows editing your 2 oldest scripts.');
+          }
+        }
+      }
       script.updated_at = new Date().toISOString();
-      scripts[index] = script;
+      allScripts[fullIndex] = script;
     } else {
-      // Enforce free-tier limit when not subscribed
-      const isPaid = typeof ApiService !== 'undefined' && await this._isPaidUser();
-      if (!isPaid && scripts.length >= this.FREE_MAX_SCRIPTS) {
-        throw new Error(`Free plan allows up to ${this.FREE_MAX_SCRIPTS} scripts. Upgrade to save more.`);
+      // NEW — enforce free-tier limit (count only live scripts)
+      if (!force) {
+        const isPaid = typeof ApiService !== 'undefined' && await this._isPaidUser();
+        if (!isPaid && liveScripts.length >= this.FREE_MAX_SCRIPTS) {
+          throw new Error(`Free plan allows up to ${this.FREE_MAX_SCRIPTS} scripts. Upgrade to save more.`);
+        }
       }
       script.created_at = script.created_at || new Date().toISOString();
       script.updated_at = script.created_at;
-      scripts.push(script);
+      allScripts.push(script);
     }
-    await this._writeChunked(scripts);
+    await this._writeChunked(allScripts);
     return script;
   },
 
   async deleteScript(id) {
-    let scripts = await this.getScripts();
-    scripts = scripts.filter((s) => s.id !== id);
-    await this._writeChunked(scripts);
+    const allScripts = await this._readChunked();
+    const script = allScripts.find((s) => s.id === id);
+    if (script) {
+      const now = new Date().toISOString();
+      script.deleted_at = now;
+      script.updated_at = now;
+    }
+    await this._writeChunked(allScripts);
   },
 
   // ─── Composite Queries ─────────────────────────────────
@@ -404,10 +484,9 @@ const StorageService = {
     // Detect legacy array format vs v2 object format
     if (Array.isArray(data)) {
       // Legacy v1 format — treat as scripts (profiles)
-      const existing = await this.getScripts();
+      const existing = await this._readChunked();
       const merged = [...existing];
       for (const incoming of data) {
-        // Ensure script-compatible shape
         const script = {
           id: incoming.id,
           site_id: incoming.site_id || null,
@@ -428,31 +507,31 @@ const StorageService = {
       }
       await this._writeChunked(merged);
     } else if (data && data.version === 2) {
-      // v2 format — merge sites, personas, scripts
+      // v2 format — merge sites, personas, scripts (preserve soft-deleted items)
       if (data.sites) {
-        const existingSites = await this.getSites();
+        const existingSites = await this._getRawSites();
         const mergedSites = [...existingSites];
         for (const incoming of data.sites) {
           const index = mergedSites.findIndex((s) => s.id === incoming.id);
           if (index >= 0) mergedSites[index] = incoming;
           else mergedSites.push(incoming);
         }
-        await chrome.storage.sync.set({ steno_sites: mergedSites });
+        await chrome.storage.local.set({ steno_sites: mergedSites });
       }
 
       if (data.personas) {
-        const existingPersonas = await this.getPersonas();
+        const existingPersonas = await this._getRawPersonas();
         const mergedPersonas = [...existingPersonas];
         for (const incoming of data.personas) {
           const index = mergedPersonas.findIndex((p) => p.id === incoming.id);
           if (index >= 0) mergedPersonas[index] = incoming;
           else mergedPersonas.push(incoming);
         }
-        await chrome.storage.sync.set({ steno_personas: mergedPersonas });
+        await chrome.storage.local.set({ steno_personas: mergedPersonas });
       }
 
       if (data.scripts) {
-        const existingScripts = await this.getScripts();
+        const existingScripts = await this._readChunked();
         const mergedScripts = [...existingScripts];
         for (const incoming of data.scripts) {
           const index = mergedScripts.findIndex((s) => s.id === incoming.id);
@@ -467,12 +546,12 @@ const StorageService = {
   // ─── Theme ──────────────────────────────────────────────
 
   async getTheme() {
-    const data = await chrome.storage.sync.get('steno_theme');
+    const data = await chrome.storage.local.get('steno_theme');
     return data.steno_theme || 'system';
   },
 
   async setTheme(theme) {
-    await chrome.storage.sync.set({ steno_theme: theme });
+    await chrome.storage.local.set({ steno_theme: theme });
   },
 
   // ─── Cloud Sync ──────────────────────────────────────────
@@ -489,10 +568,11 @@ const StorageService = {
     if (!isAuth) return { ok: false, reason: 'Not authenticated' };
 
     try {
+      // Send ALL data including soft-deleted items so server learns about deletions
       const [sites, personas, scripts] = await Promise.all([
-        this.getSites(),
-        this.getPersonas(),
-        this.getScripts(),
+        this._getRawSites(),
+        this._getRawPersonas(),
+        this._readChunked(),
       ]);
 
       const result = await ApiService.sync({ sites, personas, scripts });
@@ -508,6 +588,9 @@ const StorageService = {
         await this._mergeServerScripts(result.scripts);
       }
 
+      // Purge locally soft-deleted items — they've been sent to the server
+      await this._purgeConfirmedDeleted();
+
       return { ok: true, synced_at: result.synced_at };
     } catch (err) {
       console.error('Steno sync failed:', err);
@@ -517,26 +600,22 @@ const StorageService = {
 
   async _mergeServerData(type, serverItems) {
     const key = `steno_${type}`;
-    const data = await chrome.storage.sync.get(key);
-    const local = data[key] || [];
+    const data = await chrome.storage.local.get(key);
+    const localItems = data[key] || [];
 
     for (const serverItem of serverItems) {
-      const localIdx = local.findIndex(l => l.id === serverItem.id);
+      const localIdx = localItems.findIndex(l => l.id === serverItem.id);
       if (localIdx >= 0) {
         // Server wins if newer
-        if (new Date(serverItem.updated_at) > new Date(local[localIdx].updated_at)) {
-          if (serverItem.deleted_at) {
-            local.splice(localIdx, 1);
-          } else {
-            local[localIdx] = serverItem;
-          }
+        if (new Date(serverItem.updated_at) > new Date(localItems[localIdx].updated_at)) {
+          localItems[localIdx] = serverItem; // keep soft-deleted items (with deleted_at)
         }
-      } else if (!serverItem.deleted_at) {
-        local.push(serverItem);
+      } else {
+        localItems.push(serverItem); // add even if deleted — purge handles cleanup
       }
     }
 
-    await chrome.storage.sync.set({ [key]: local });
+    await chrome.storage.local.set({ [key]: localItems });
   },
 
   async _mergeServerScripts(serverScripts) {
@@ -546,17 +625,25 @@ const StorageService = {
       const localIdx = local.findIndex(l => l.id === serverScript.id);
       if (localIdx >= 0) {
         if (new Date(serverScript.updated_at) > new Date(local[localIdx].updated_at)) {
-          if (serverScript.deleted_at) {
-            local.splice(localIdx, 1);
-          } else {
-            local[localIdx] = serverScript;
-          }
+          local[localIdx] = serverScript; // keep soft-deleted items (with deleted_at)
         }
-      } else if (!serverScript.deleted_at) {
-        local.push(serverScript);
+      } else {
+        local.push(serverScript); // add even if deleted — purge handles cleanup
       }
     }
 
     await this._writeChunked(local);
+  },
+
+  async _purgeConfirmedDeleted() {
+    // Remove soft-deleted items from local storage after successful sync
+    const allSites = await this._getRawSites();
+    await chrome.storage.local.set({ steno_sites: allSites.filter((s) => !s.deleted_at) });
+
+    const allPersonas = await this._getRawPersonas();
+    await chrome.storage.local.set({ steno_personas: allPersonas.filter((p) => !p.deleted_at) });
+
+    const allScripts = await this._readChunked();
+    await this._writeChunked(allScripts.filter((s) => !s.deleted_at));
   },
 };

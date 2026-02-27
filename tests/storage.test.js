@@ -94,27 +94,36 @@ describe('StorageService', () => {
       expect(sites[0].label).toBe('New');
     });
 
-    it('deleteSite removes the site', async () => {
+    it('deleteSite soft-deletes the site', async () => {
       const site = { id: 'site-del', hostname: 'del.com', label: 'Del' };
       await StorageService.saveSite(site);
       expect(await StorageService.getSites()).toHaveLength(1);
 
       await StorageService.deleteSite('site-del');
+
+      // Public getter filters it out
       expect(await StorageService.getSites()).toHaveLength(0);
+
+      // But raw storage still has it with deleted_at
+      const raw = await StorageService._getRawSites();
+      expect(raw).toHaveLength(1);
+      expect(raw[0].deleted_at).toBeDefined();
     });
 
-    it('deleteSite cascades: orphaned scripts get null site_id', async () => {
+    it('deleteSite cascades: soft-deletes personas, ungroups scripts', async () => {
       const site = { id: 'site-cas', hostname: 'cas.com', label: 'Cascade' };
       await StorageService.saveSite(site);
+
+      const persona = { id: 'p-cas', site_id: 'site-cas', name: 'Cascaded' };
+      await StorageService.savePersona(persona);
 
       const script = {
         id: 'script-cas',
         site_id: 'site-cas',
-        persona_id: null,
+        persona_id: 'p-cas',
         name: 'My Script',
         fields: [],
       };
-      // Bypass free-tier check by mocking _isPaidUser
       const origIsPaid = StorageService._isPaidUser;
       StorageService._isPaidUser = async () => true;
       await StorageService.saveScript(script);
@@ -122,9 +131,16 @@ describe('StorageService', () => {
 
       await StorageService.deleteSite('site-cas');
 
+      // Personas soft-deleted
+      expect(await StorageService.getPersonas()).toHaveLength(0);
+      const rawPersonas = await StorageService._getRawPersonas();
+      expect(rawPersonas[0].deleted_at).toBeDefined();
+
+      // Scripts ungrouped but NOT deleted
       const scripts = await StorageService.getScripts();
       expect(scripts).toHaveLength(1);
       expect(scripts[0].site_id).toBeNull();
+      expect(scripts[0].persona_id).toBeNull();
     });
   });
 
@@ -158,11 +174,18 @@ describe('StorageService', () => {
       expect(personas[0].name).toBe('New');
     });
 
-    it('deletePersona removes persona', async () => {
+    it('deletePersona soft-deletes the persona', async () => {
       const persona = { id: 'p-del', site_id: null, name: 'Bye' };
       await StorageService.savePersona(persona);
       await StorageService.deletePersona('p-del');
+
+      // Public getter filters it out
       expect(await StorageService.getPersonas()).toHaveLength(0);
+
+      // But raw storage still has it with deleted_at
+      const raw = await StorageService._getRawPersonas();
+      expect(raw).toHaveLength(1);
+      expect(raw[0].deleted_at).toBeDefined();
     });
 
     it('deletePersona cascades: scripts lose persona_id', async () => {
@@ -232,11 +255,18 @@ describe('StorageService', () => {
       expect(scripts[0].name).toBe('Updated');
     });
 
-    it('deleteScript removes the script', async () => {
+    it('deleteScript soft-deletes the script', async () => {
       const script = { id: 's-del', site_id: null, persona_id: null, name: 'Gone', fields: [] };
       await StorageService.saveScript(script);
       await StorageService.deleteScript('s-del');
+
+      // Public getter filters it out
       expect(await StorageService.getScripts()).toHaveLength(0);
+
+      // But raw storage still has it with deleted_at
+      const raw = await StorageService._readChunked();
+      expect(raw).toHaveLength(1);
+      expect(raw[0].deleted_at).toBeDefined();
     });
 
     it('getScript returns a single script by id', async () => {
@@ -312,7 +342,7 @@ describe('StorageService', () => {
   // ──────────────────────────────────────────────────────────────
 
   describe('free tier script limit', () => {
-    it('blocks saving a 6th script for free users', async () => {
+    it('blocks saving a 3rd script for free users', async () => {
       // ApiService must be "defined" for the check. The actual code does:
       //   typeof ApiService !== 'undefined' && await this._isPaidUser()
       // We mock _isPaidUser to return false.
@@ -320,8 +350,8 @@ describe('StorageService', () => {
       // Make ApiService defined globally so the typeof check passes
       globalThis.ApiService = {};
 
-      // Save 5 scripts (the maximum for free tier)
-      for (let i = 0; i < 5; i++) {
+      // Save 2 scripts (the maximum for free tier)
+      for (let i = 0; i < 2; i++) {
         await StorageService.saveScript({
           id: `free-${i}`,
           site_id: null,
@@ -331,13 +361,13 @@ describe('StorageService', () => {
         });
       }
 
-      // The 6th should throw
+      // The 3rd should throw
       await expect(
         StorageService.saveScript({
-          id: 'free-5',
+          id: 'free-2',
           site_id: null,
           persona_id: null,
-          name: 'Script 5',
+          name: 'Script 2',
           fields: [],
         }),
       ).rejects.toThrow(/Free plan/);
@@ -364,6 +394,106 @@ describe('StorageService', () => {
       expect(scripts).toHaveLength(10);
 
       delete globalThis.ApiService;
+    });
+
+    it('free limit counts only live scripts (deleting frees a slot)', async () => {
+      StorageService._isPaidUser = async () => false;
+      globalThis.ApiService = {};
+
+      // Save 2 scripts (at limit)
+      await StorageService.saveScript({ id: 'slot-0', site_id: null, persona_id: null, name: 'First', fields: [] });
+      await StorageService.saveScript({ id: 'slot-1', site_id: null, persona_id: null, name: 'Second', fields: [] });
+
+      // Can't save a 3rd
+      await expect(
+        StorageService.saveScript({ id: 'slot-2', site_id: null, persona_id: null, name: 'Third', fields: [] }),
+      ).rejects.toThrow(/Free plan/);
+
+      // Delete one — frees a slot
+      await StorageService.deleteScript('slot-1');
+
+      // Now the 3rd succeeds
+      await StorageService.saveScript({ id: 'slot-2', site_id: null, persona_id: null, name: 'Third', fields: [] });
+      expect(await StorageService.getScripts()).toHaveLength(2);
+
+      // Soft-deleted item still in raw storage
+      const raw = await StorageService._readChunked();
+      expect(raw).toHaveLength(3);
+
+      delete globalThis.ApiService;
+    });
+
+    it('blocks editing 3rd+ oldest script for free users', async () => {
+      StorageService._isPaidUser = async () => true;
+      globalThis.ApiService = {};
+
+      // Create 3 scripts as paid user with explicit created_at ordering
+      await StorageService.saveScript({
+        id: 'edit-oldest', site_id: null, persona_id: null, name: 'Oldest', fields: [],
+        created_at: '2025-01-01T00:00:00.000Z',
+      });
+      await StorageService.saveScript({
+        id: 'edit-middle', site_id: null, persona_id: null, name: 'Middle', fields: [],
+        created_at: '2025-06-01T00:00:00.000Z',
+      });
+      await StorageService.saveScript({
+        id: 'edit-newest', site_id: null, persona_id: null, name: 'Newest', fields: [],
+        created_at: '2025-12-01T00:00:00.000Z',
+      });
+
+      // Switch to free user
+      StorageService._isPaidUser = async () => false;
+
+      // Can edit the 2 oldest
+      await StorageService.saveScript({
+        id: 'edit-oldest', site_id: null, persona_id: null, name: 'Oldest Updated', fields: [],
+        created_at: '2025-01-01T00:00:00.000Z',
+      });
+      await StorageService.saveScript({
+        id: 'edit-middle', site_id: null, persona_id: null, name: 'Middle Updated', fields: [],
+        created_at: '2025-06-01T00:00:00.000Z',
+      });
+
+      // Cannot edit the 3rd (newest)
+      await expect(
+        StorageService.saveScript({
+          id: 'edit-newest', site_id: null, persona_id: null, name: 'Newest Updated', fields: [],
+          created_at: '2025-12-01T00:00:00.000Z',
+        }),
+      ).rejects.toThrow(/Upgrade to edit/);
+
+      delete globalThis.ApiService;
+    });
+
+    it('saveSite preserves soft-deleted items in storage', async () => {
+      // Create and soft-delete a site
+      await StorageService.saveSite({ id: 'alive', hostname: 'alive.com', label: 'Alive' });
+      await StorageService.saveSite({ id: 'dead', hostname: 'dead.com', label: 'Dead' });
+      await StorageService.deleteSite('dead');
+
+      // Save a new site
+      await StorageService.saveSite({ id: 'new', hostname: 'new.com', label: 'New' });
+
+      // Public getter returns 2 (alive + new)
+      expect(await StorageService.getSites()).toHaveLength(2);
+
+      // Raw storage has 3 (including soft-deleted)
+      const raw = await StorageService._getRawSites();
+      expect(raw).toHaveLength(3);
+      expect(raw.find((s) => s.id === 'dead').deleted_at).toBeDefined();
+    });
+
+    it('savePersona preserves soft-deleted items in storage', async () => {
+      await StorageService.savePersona({ id: 'p-alive', site_id: null, name: 'Alive' });
+      await StorageService.savePersona({ id: 'p-dead', site_id: null, name: 'Dead' });
+      await StorageService.deletePersona('p-dead');
+
+      await StorageService.savePersona({ id: 'p-new', site_id: null, name: 'New' });
+
+      expect(await StorageService.getPersonas()).toHaveLength(2);
+      const raw = await StorageService._getRawPersonas();
+      expect(raw).toHaveLength(3);
+      expect(raw.find((p) => p.id === 'p-dead').deleted_at).toBeDefined();
     });
   });
 
@@ -483,7 +613,7 @@ describe('StorageService', () => {
       });
 
       // Verify chunking happened (steno_scripts_count should be > 1)
-      const countData = await chrome.storage.sync.get('steno_scripts_count');
+      const countData = await chrome.storage.local.get('steno_scripts_count');
       expect(countData.steno_scripts_count).toBeGreaterThan(1);
 
       // Verify round-trip
@@ -529,15 +659,15 @@ describe('StorageService', () => {
       expect(personas).toEqual([]);
       expect(scripts).toEqual([]);
 
-      // schema version should be set
-      const sv = await chrome.storage.sync.get('steno_schema_version');
+      // schema version should be set in local storage
+      const sv = await chrome.storage.local.get('steno_schema_version');
       expect(sv.steno_schema_version).toBe(StorageService.SCHEMA_VERSION);
     });
 
     it('skips migration when schema version is current', async () => {
-      await chrome.storage.sync.set({ steno_schema_version: StorageService.SCHEMA_VERSION });
+      await chrome.storage.local.set({ steno_schema_version: StorageService.SCHEMA_VERSION });
       // Put in some data that should NOT be touched
-      await chrome.storage.sync.set({ steno_sites: [{ id: 'keep', hostname: 'keep.com' }] });
+      await chrome.storage.local.set({ steno_sites: [{ id: 'keep', hostname: 'keep.com' }] });
 
       await StorageService.migrateIfNeeded();
 

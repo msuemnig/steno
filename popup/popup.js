@@ -11,6 +11,9 @@
   const viewRecording = document.getElementById('view-recording');
   const viewSave = document.getElementById('view-save');
   const viewResults = document.getElementById('view-results');
+  const viewLimit = document.getElementById('view-limit');
+  const viewReplace = document.getElementById('view-replace');
+  const viewConfirm = document.getElementById('view-confirm-replace');
 
   const scriptSearch = document.getElementById('script-search');
   const searchList = document.getElementById('search-list');
@@ -34,10 +37,23 @@
   const btnFillAgain = document.getElementById('btn-fill-again');
   const btnBack = document.getElementById('btn-back');
 
+  const limitMsg = document.getElementById('limit-msg');
+  const btnUpgrade = document.getElementById('btn-upgrade');
+  const btnReplacePick = document.getElementById('btn-replace-pick');
+  const btnLimitCancel = document.getElementById('btn-limit-cancel');
+  const replaceListEl = document.getElementById('replace-list');
+  const btnReplaceBack = document.getElementById('btn-replace-back');
+  const confirmScriptName = document.getElementById('confirm-script-name');
+  const btnConfirmDelete = document.getElementById('btn-confirm-delete');
+  const btnConfirmCancel = document.getElementById('btn-confirm-cancel');
+
   let capturedFields = [];
   let lastReplayScriptId = null;
   let allScripts = [];
   let selectedScriptId = null;
+  let pendingSave = null;         // script object awaiting save after replace
+  let limitExistingScripts = [];  // scripts shown in the replace picker
+  let replaceScriptId = null;     // script chosen to be replaced
 
   // ─── Helpers ─────────────────────────────────────────────
   function showView(view) {
@@ -45,6 +61,9 @@
     viewRecording.classList.add('hidden');
     viewSave.classList.add('hidden');
     viewResults.classList.add('hidden');
+    viewLimit.classList.add('hidden');
+    viewReplace.classList.add('hidden');
+    viewConfirm.classList.add('hidden');
     view.classList.remove('hidden');
   }
 
@@ -335,17 +354,14 @@
   });
 
   // ─── Save events ─────────────────────────────────────────
-  btnSave.addEventListener('click', async () => {
+
+  async function buildScriptFromForm() {
     const name = scriptNameInput.value.trim();
-    if (!name) {
-      scriptNameInput.focus();
-      return;
-    }
+    if (!name) return null;
 
     const tab = await getActiveTab();
     let siteId = null;
 
-    // Auto-detect site from hostname
     if (tab?.url) {
       try {
         const hostname = new URL(tab.url).hostname;
@@ -353,18 +369,14 @@
         if (!site) {
           site = await sendToBackground({
             type: 'SAVE_SITE',
-            site: {
-              id: crypto.randomUUID(),
-              hostname,
-              label: hostname,
-            },
+            site: { id: crypto.randomUUID(), hostname, label: hostname },
           });
         }
         siteId = site.id;
       } catch { /* leave siteId null */ }
     }
 
-    const script = {
+    return {
       id: crypto.randomUUID(),
       site_id: siteId,
       persona_id: null,
@@ -373,28 +385,102 @@
       url_hint: tab?.url || '',
       fields: capturedFields,
     };
+  }
 
-    try {
-      await sendToBackground({ type: 'SAVE_SCRIPT', script });
-    } catch (err) {
-      const msg = err?.message || '';
-      if (msg.includes('Free plan') || msg.includes('Upgrade')) {
-        saveSiteHint.textContent = msg;
-        saveSiteHint.style.color = 'var(--danger)';
-        return;
-      }
-      throw err;
+  async function finishSave(script, { force = false } = {}) {
+    const result = await sendToBackground({ type: 'SAVE_SCRIPT', script, force });
+    if (result && !result.ok) {
+      console.error('Save failed:', result.error);
+      return;
     }
     capturedFields = [];
+    pendingSave = null;
     await loadScripts();
     selectScript({ ...script, site_label: '', persona_name: '' });
     showView(viewIdle);
+  }
+
+  btnSave.addEventListener('click', async () => {
+    const script = await buildScriptFromForm();
+    if (!script) { scriptNameInput.focus(); return; }
+
+    // Check free-tier limit
+    const limit = await sendToBackground({ type: 'GET_SCRIPT_LIMIT' });
+    if (limit !== null) {
+      const existingScripts = await sendToBackground({ type: 'GET_SCRIPTS_FLAT' });
+      if (existingScripts.length >= limit) {
+        pendingSave = script;
+        limitExistingScripts = existingScripts;
+        limitMsg.innerHTML = `You\u2019ve reached your free plan limit of <strong>${limit} scripts</strong>. Upgrade for unlimited scripts, cloud sync, and more.`;
+        showView(viewLimit);
+        return;
+      }
+    }
+
+    await finishSave(script);
   });
 
   btnSaveDiscard.addEventListener('click', async () => {
     capturedFields = [];
     await loadScripts();
     showView(viewIdle);
+  });
+
+  // ─── Limit / Replace flow ────────────────────────────────
+
+  btnUpgrade.addEventListener('click', () => {
+    chrome.tabs.create({ url: 'https://steno-web.test/pricing' });
+  });
+
+  btnReplacePick.addEventListener('click', () => {
+    replaceListEl.innerHTML = '';
+    for (const s of limitExistingScripts) {
+      const li = document.createElement('li');
+      li.dataset.id = s.id;
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'replace-name';
+      nameSpan.textContent = s.name;
+      li.appendChild(nameSpan);
+
+      if (s.site_label) {
+        const siteSpan = document.createElement('span');
+        siteSpan.className = 'replace-site';
+        siteSpan.textContent = s.site_label;
+        li.appendChild(siteSpan);
+      }
+
+      li.addEventListener('click', () => {
+        replaceScriptId = s.id;
+        confirmScriptName.textContent = s.name;
+        showView(viewConfirm);
+      });
+
+      replaceListEl.appendChild(li);
+    }
+    showView(viewReplace);
+  });
+
+  btnLimitCancel.addEventListener('click', () => {
+    pendingSave = null;
+    showView(viewSave);
+  });
+
+  btnReplaceBack.addEventListener('click', () => {
+    showView(viewLimit);
+  });
+
+  btnConfirmDelete.addEventListener('click', async () => {
+    if (!replaceScriptId || !pendingSave) return;
+    await sendToBackground({ type: 'DELETE_SCRIPT', id: replaceScriptId });
+    const savedScript = pendingSave;
+    replaceScriptId = null;
+    await finishSave(savedScript, { force: true });
+  });
+
+  btnConfirmCancel.addEventListener('click', () => {
+    replaceScriptId = null;
+    showView(viewReplace);
   });
 
   // ─── Results ─────────────────────────────────────────────

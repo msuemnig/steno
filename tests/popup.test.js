@@ -59,6 +59,21 @@ function setupPopupDOM() {
         <button id="btn-fill-again"></button>
         <button id="btn-back"></button>
       </div>
+      <div id="view-limit" class="hidden">
+        <p id="limit-msg"></p>
+        <button id="btn-upgrade"></button>
+        <button id="btn-replace-pick"></button>
+        <button id="btn-limit-cancel"></button>
+      </div>
+      <div id="view-replace" class="hidden">
+        <ul id="replace-list"></ul>
+        <button id="btn-replace-back"></button>
+      </div>
+      <div id="view-confirm-replace" class="hidden">
+        <strong id="confirm-script-name"></strong>
+        <button id="btn-confirm-delete"></button>
+        <button id="btn-confirm-cancel"></button>
+      </div>
     `;
   }
 }
@@ -86,6 +101,9 @@ describe('popup helpers (unit)', () => {
       document.getElementById('view-recording').classList.add('hidden');
       document.getElementById('view-save').classList.add('hidden');
       document.getElementById('view-results').classList.add('hidden');
+      document.getElementById('view-limit').classList.add('hidden');
+      document.getElementById('view-replace').classList.add('hidden');
+      document.getElementById('view-confirm-replace').classList.add('hidden');
       view.classList.remove('hidden');
     }
 
@@ -406,6 +424,9 @@ describe('popup helpers (unit)', () => {
       document.getElementById('view-recording').classList.add('hidden');
       document.getElementById('view-save').classList.add('hidden');
       document.getElementById('view-results').classList.add('hidden');
+      document.getElementById('view-limit').classList.add('hidden');
+      document.getElementById('view-replace').classList.add('hidden');
+      document.getElementById('view-confirm-replace').classList.add('hidden');
       view.classList.remove('hidden');
     }
 
@@ -556,11 +577,15 @@ describe('popup integration', () => {
   it('has all required DOM elements from popup.html', () => {
     const requiredIds = [
       'view-idle', 'view-recording', 'view-save', 'view-results',
+      'view-limit', 'view-replace', 'view-confirm-replace',
       'script-search', 'search-list', 'btn-record', 'btn-fill',
       'link-options', 'field-count', 'btn-stop', 'btn-discard',
       'script-name', 'save-site-hint', 'save-field-count',
       'btn-save', 'btn-save-discard', 'result-filled',
       'result-skipped', 'result-warnings', 'btn-fill-again', 'btn-back',
+      'limit-msg', 'btn-upgrade', 'btn-replace-pick', 'btn-limit-cancel',
+      'replace-list', 'btn-replace-back',
+      'confirm-script-name', 'btn-confirm-delete', 'btn-confirm-cancel',
     ];
 
     for (const id of requiredIds) {

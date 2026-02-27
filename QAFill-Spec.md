@@ -90,7 +90,7 @@ qafill-extension/
 │   ├── options.js
 │   └── options.css
 ├── services/
-│   ├── storage.js                # Storage abstraction layer (v1: chrome.storage.sync)
+│   ├── storage.js                # Storage abstraction layer (v3: chrome.storage.local)
 │   └── recorder.js               # Recording logic — event capture, selector generation
 └── assets/
     └── icons/
@@ -213,7 +213,7 @@ The export/import feature is important in v1 — it lets the team share a baseli
 ### services/storage.js
 The critical abstraction layer that enables the v1 → v2 migration with zero changes to any other file.
 
-**v1 Interface (chrome.storage.sync):**
+**v1 Interface (originally chrome.storage.sync, now chrome.storage.local):**
 ```javascript
 const StorageService = {
   getProfiles: async () => { ... },
@@ -226,6 +226,10 @@ const StorageService = {
 ```
 
 All other files interact exclusively through this interface. In v2, the internals are replaced with `fetch()` calls to the Laravel API — the interface remains identical.
+
+**Soft deletes:** Items are marked with `deleted_at` instead of being removed from storage. Public getters (`getSites`, `getPersonas`, `getScripts`) filter out soft-deleted items. Raw getters (`_getRawSites`, `_getRawPersonas`, `_readChunked`) return everything including soft-deleted items. During sync, ALL items (including soft-deleted) are sent to the server so it learns about client-side deletions. After a successful sync, `_purgeConfirmedDeleted()` removes soft-deleted items from local storage.
+
+**Free-tier restrictions:** Free users (no active subscription) are limited to 2 scripts. Only the 2 oldest scripts (by `created_at`) are editable — newer scripts are read-only (replay still works). Deleting a script frees a slot. When a site is deleted, its personas are soft-deleted and its scripts are ungrouped (moved to no-site) but not deleted.
 
 ### services/recorder.js
 Selector generation logic. Given a DOM element, returns the best available stable selector:
@@ -293,7 +297,7 @@ Profiles are environment-agnostic. The `url_hint` field is stored for reference 
 - `manifest.json` scaffold
 - `content.js` — input event capture (recording) + sequential value injection (replay)
 - `background.js` — message routing, recording state management
-- `services/storage.js` — chrome.storage.sync implementation
+- `services/storage.js` — chrome.storage.local implementation (migrated from sync in v3)
 - `services/recorder.js` — selector generation
 - Basic `popup` — profile dropdown, record button, fill button
 
@@ -322,7 +326,7 @@ The following features are explicitly out of scope for v1 but are accounted for 
 - Profiles stored centrally, shared across all team members
 - No Chrome account dependency — any browser, any machine
 - Version history on recordings (see when a profile was last updated and by whom)
-- Soft deletes (recover accidentally deleted profiles)
+- Soft deletes on both client and server — deletions propagate correctly through sync
 
 **Auth:**
 - SSO via Google identity provider

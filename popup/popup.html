@@ -100,6 +100,52 @@
     </div>
   </div>
 
+  <!-- Script limit reached -->
+  <div id="view-limit" class="hidden">
+    <header>
+      <div class="brand">
+        <span class="brand-mark">&gt;_</span>
+        <span class="brand-name">Script limit</span>
+      </div>
+    </header>
+    <p class="limit-msg" id="limit-msg"></p>
+    <div class="actions">
+      <button id="btn-upgrade" class="btn btn-primary">Upgrade</button>
+      <button id="btn-replace-pick" class="btn btn-ghost">Replace an existing script</button>
+      <button id="btn-limit-cancel" class="btn btn-ghost">Cancel</button>
+    </div>
+  </div>
+
+  <!-- Replace script picker -->
+  <div id="view-replace" class="hidden">
+    <header>
+      <div class="brand">
+        <span class="brand-mark">&gt;_</span>
+        <span class="brand-name">Replace script</span>
+      </div>
+    </header>
+    <p class="limit-sublabel">Select a script to replace:</p>
+    <ul id="replace-list" class="replace-list"></ul>
+    <div class="actions">
+      <button id="btn-replace-back" class="btn btn-ghost">Back</button>
+    </div>
+  </div>
+
+  <!-- Confirm replace -->
+  <div id="view-confirm-replace" class="hidden">
+    <header>
+      <div class="brand">
+        <span class="brand-mark">&gt;_</span>
+        <span class="brand-name">Confirm</span>
+      </div>
+    </header>
+    <p class="limit-msg">This will permanently delete &ldquo;<strong id="confirm-script-name"></strong>&rdquo;. Are you sure?</p>
+    <div class="actions">
+      <button id="btn-confirm-delete" class="btn btn-primary">Delete &amp; Save</button>
+      <button id="btn-confirm-cancel" class="btn btn-ghost">Cancel</button>
+    </div>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>

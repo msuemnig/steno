@@ -10,7 +10,7 @@
     }
   },
   "name": "Steno",
-  "version": "0.2.0",
+  "version": "0.2.5",
   "description": "Record and replay form fills instantly.",
   "permissions": ["storage", "activeTab", "scripting", "tabs", "alarms"],
   "host_permissions": ["https://steno-web.test/*"],
@@ -23,8 +23,7 @@
     }
   },
   "background": {
-    "service_worker": "background.js",
-    "scripts": ["services/api.js", "services/storage.js", "background.js"]
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {

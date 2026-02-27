@@ -1,0 +1,55 @@
+{
+  "version": 2,
+  "sites": [
+    {
+      "id": "site-import-1",
+      "hostname": "example.com",
+      "label": "Example Site",
+      "created_at": "2026-02-01T12:00:00.000Z",
+      "updated_at": "2026-02-01T12:00:00.000Z"
+    }
+  ],
+  "personas": [
+    {
+      "id": "persona-import-1",
+      "site_id": "site-import-1",
+      "name": "QA Tester",
+      "created_at": "2026-02-01T12:00:00.000Z",
+      "updated_at": "2026-02-01T12:00:00.000Z"
+    }
+  ],
+  "scripts": [
+    {
+      "id": "script-import-1",
+      "site_id": "site-import-1",
+      "persona_id": "persona-import-1",
+      "name": "Imported - Login Form",
+      "created_by": "test",
+      "url_hint": "https://example.com/login",
+      "fields": [
+        { "order": 1, "action": "fill", "selector": "#email", "value": "imported@example.com", "type": "email", "label": "Email" },
+        { "order": 2, "action": "fill", "selector": "#password", "value": "test1234", "type": "password", "label": "Password" },
+        { "order": 3, "action": "click", "selector": "button[type='submit']", "value": "", "type": "button", "label": "Submit" }
+      ],
+      "created_at": "2026-02-01T12:00:00.000Z",
+      "updated_at": "2026-02-01T12:00:00.000Z"
+    },
+    {
+      "id": "script-import-2",
+      "site_id": "site-import-1",
+      "persona_id": null,
+      "name": "Imported - Registration",
+      "created_by": "test",
+      "url_hint": "https://example.com/register",
+      "fields": [
+        { "order": 1, "action": "fill", "selector": "#first_name", "value": "Jane", "type": "text", "label": "First Name" },
+        { "order": 2, "action": "fill", "selector": "#last_name", "value": "Doe", "type": "text", "label": "Last Name" },
+        { "order": 3, "action": "fill", "selector": "#email", "value": "jane@example.com", "type": "email", "label": "Email" },
+        { "order": 4, "action": "fill", "selector": "#password", "value": "securePass123", "type": "password", "label": "Password" },
+        { "order": 5, "action": "fill", "selector": "#password_confirmation", "value": "securePass123", "type": "password", "label": "Confirm Password" }
+      ],
+      "created_at": "2026-02-01T12:30:00.000Z",
+      "updated_at": "2026-02-01T12:30:00.000Z"
+    }
+  ]
+}

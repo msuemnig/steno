@@ -150,7 +150,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'SAVE_SCRIPT' || msg.type === 'SAVE_PROFILE') {
     const script = msg.script || msg.profile;
-    StorageService.saveScript(script).then(() => sendResponse({ ok: true }));
+    StorageService.saveScript(script, { force: !!msg.force })
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+
+  if (msg.type === 'GET_SCRIPT_LIMIT') {
+    StorageService.getScriptLimit().then(sendResponse);
     return true;
   }
 
@@ -214,12 +221,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   // Export / Import
   if (msg.type === 'EXPORT_ALL') {
-    StorageService.exportAll().then(sendResponse);
+    StorageService.exportAll()
+      .then(data => sendResponse({ ok: true, data }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 
   if (msg.type === 'IMPORT_ALL') {
-    StorageService.importAll(msg.data).then(() => sendResponse({ ok: true }));
+    StorageService.importAll(msg.data)
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
   }
 

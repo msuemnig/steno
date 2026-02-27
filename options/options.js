@@ -636,8 +636,12 @@
   // ─── Export / Import ──────────────────────────────────
 
   btnExport.addEventListener('click', async () => {
-    const data = await msg({ type: 'EXPORT_ALL' });
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const result = await msg({ type: 'EXPORT_ALL' });
+    if (!result || !result.ok) {
+      alert(result?.error || 'Export failed.');
+      return;
+    }
+    const blob = new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -655,8 +659,12 @@
       const data = JSON.parse(text);
       // Detect format: array (legacy) or object with version
       if (Array.isArray(data) || (data && data.version)) {
-        await msg({ type: 'IMPORT_ALL', data });
-        await renderNav();
+        const result = await msg({ type: 'IMPORT_ALL', data });
+        if (result && !result.ok) {
+          alert(result.error || 'Import failed.');
+        } else {
+          await renderNav();
+        }
       } else {
         alert('Unrecognized format. Expected a JSON array or v2 export object.');
       }

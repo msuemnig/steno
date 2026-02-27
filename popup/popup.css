@@ -393,3 +393,59 @@ footer a:hover {
 .warn-list li:last-child {
   border-bottom: none;
 }
+
+/* ─── Limit / Replace ───────────────── */
+
+.limit-msg {
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.limit-msg strong {
+  color: var(--accent);
+}
+
+.limit-sublabel {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.replace-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.replace-list li {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background 0.1s;
+  gap: 1px;
+  border-bottom: 1px solid var(--border);
+}
+
+.replace-list li:last-child {
+  border-bottom: none;
+}
+
+.replace-list li:hover {
+  background: var(--danger-dim);
+}
+
+.replace-list .replace-name {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.replace-list .replace-site {
+  font-size: 10px;
+  color: var(--muted);
+}
