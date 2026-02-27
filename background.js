@@ -1,7 +1,7 @@
 /**
  * Service worker — message routing and recording state management.
  */
-if (typeof importScripts === 'function') importScripts('services/storage.js');
+if (typeof importScripts === 'function') importScripts('services/api.js', 'services/storage.js');
 
 let recordingTabId = null;
 let capturedFieldCount = 0;
@@ -233,6 +233,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     StorageService.setTheme(msg.theme).then(() => sendResponse({ ok: true }));
     return true;
   }
+
+  // ─── Auth & Sync handlers ─────────────────────────────
+
+  if (msg.type === 'GET_AUTH_STATUS') {
+    (async () => {
+      const isAuth = await ApiService.isAuthenticated();
+      const user = isAuth ? await ApiService.getUser() : null;
+      const lastSynced = await ApiService.getLastSyncedAt();
+      sendResponse({ authenticated: isAuth, user, lastSyncedAt: lastSynced });
+    })();
+    return true;
+  }
+
+  if (msg.type === 'SET_AUTH_TOKEN') {
+    ApiService.setToken(msg.token, msg.user).then(async () => {
+      // Trigger initial sync after login
+      const result = await StorageService.sync();
+      sendResponse({ ok: true, syncResult: result });
+    });
+    return true;
+  }
+
+  if (msg.type === 'LOGOUT') {
+    ApiService.clearToken().then(() => sendResponse({ ok: true }));
+    return true;
+  }
+
+  if (msg.type === 'SYNC_NOW') {
+    StorageService.sync().then(sendResponse);
+    return true;
+  }
 });
 
 // ─── Cross-page replay navigation listener ──────────────────
@@ -299,4 +330,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       }
     });
   }, 200);
+});
+
+// ─── Periodic background sync (every 5 minutes) ─────────
+chrome.alarms.create('steno-sync', { periodInMinutes: 5 });
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== 'steno-sync') return;
+  const isAuth = await ApiService.isAuthenticated();
+  if (isAuth) {
+    StorageService.sync().catch(err => console.error('Periodic sync failed:', err));
+  }
 });

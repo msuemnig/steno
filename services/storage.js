@@ -7,6 +7,7 @@ const StorageService = {
   // ─── Constants ──────────────────────────────────────────
   SCHEMA_VERSION: 2,
   CHUNK_SIZE: 7000, // ~7KB per chunk, well under 8KB limit
+  FREE_MAX_SCRIPTS: 5,
 
   // ─── Migration ──────────────────────────────────────────
 
@@ -236,6 +237,11 @@ const StorageService = {
       script.updated_at = new Date().toISOString();
       scripts[index] = script;
     } else {
+      // Enforce free-tier limit when not subscribed
+      const isPaid = typeof ApiService !== 'undefined' && await this._isPaidUser();
+      if (!isPaid && scripts.length >= this.FREE_MAX_SCRIPTS) {
+        throw new Error(`Free plan allows up to ${this.FREE_MAX_SCRIPTS} scripts. Upgrade to save more.`);
+      }
       script.created_at = script.created_at || new Date().toISOString();
       script.updated_at = script.created_at;
       scripts.push(script);
@@ -352,9 +358,36 @@ const StorageService = {
     return await this.deleteScript(id);
   },
 
+  // ─── Plan helpers ──────────────────────────────────────
+
+  async _isPaidUser() {
+    if (typeof ApiService === 'undefined') return false;
+    try {
+      const isAuth = await ApiService.isAuthenticated();
+      if (!isAuth) return false;
+      const user = await ApiService.fetchUser();
+      return user?.current_team?.subscribed === true;
+    } catch {
+      return false;
+    }
+  },
+
+  async getScriptLimit() {
+    const isPaid = typeof ApiService !== 'undefined' && await this._isPaidUser();
+    return isPaid ? null : this.FREE_MAX_SCRIPTS;
+  },
+
+  async canExport() {
+    return typeof ApiService !== 'undefined' && await this._isPaidUser();
+  },
+
   // ─── Export / Import ────────────────────────────────────
 
   async exportAll() {
+    const allowed = await this.canExport();
+    if (!allowed) {
+      throw new Error('Export is available on paid plans. Upgrade to export your scripts.');
+    }
     const [sites, personas, scripts] = await Promise.all([
       this.getSites(),
       this.getPersonas(),
@@ -364,6 +397,10 @@ const StorageService = {
   },
 
   async importAll(data) {
+    const allowed = await this.canExport();
+    if (!allowed) {
+      throw new Error('Import is available on paid plans. Upgrade to import scripts.');
+    }
     // Detect legacy array format vs v2 object format
     if (Array.isArray(data)) {
       // Legacy v1 format — treat as scripts (profiles)
@@ -436,5 +473,90 @@ const StorageService = {
 
   async setTheme(theme) {
     await chrome.storage.sync.set({ steno_theme: theme });
+  },
+
+  // ─── Cloud Sync ──────────────────────────────────────────
+
+  /**
+   * Bidirectional sync with the API.
+   * Uploads all local data, applies server changes locally.
+   * Requires ApiService to be loaded and authenticated.
+   */
+  async sync() {
+    if (typeof ApiService === 'undefined') return { ok: false, reason: 'ApiService not loaded' };
+
+    const isAuth = await ApiService.isAuthenticated();
+    if (!isAuth) return { ok: false, reason: 'Not authenticated' };
+
+    try {
+      const [sites, personas, scripts] = await Promise.all([
+        this.getSites(),
+        this.getPersonas(),
+        this.getScripts(),
+      ]);
+
+      const result = await ApiService.sync({ sites, personas, scripts });
+
+      // Apply server changes locally (last-write-wins by updated_at)
+      if (result.sites) {
+        await this._mergeServerData('sites', result.sites);
+      }
+      if (result.personas) {
+        await this._mergeServerData('personas', result.personas);
+      }
+      if (result.scripts) {
+        await this._mergeServerScripts(result.scripts);
+      }
+
+      return { ok: true, synced_at: result.synced_at };
+    } catch (err) {
+      console.error('Steno sync failed:', err);
+      return { ok: false, reason: err.message };
+    }
+  },
+
+  async _mergeServerData(type, serverItems) {
+    const key = `steno_${type}`;
+    const data = await chrome.storage.sync.get(key);
+    const local = data[key] || [];
+
+    for (const serverItem of serverItems) {
+      const localIdx = local.findIndex(l => l.id === serverItem.id);
+      if (localIdx >= 0) {
+        // Server wins if newer
+        if (new Date(serverItem.updated_at) > new Date(local[localIdx].updated_at)) {
+          if (serverItem.deleted_at) {
+            local.splice(localIdx, 1);
+          } else {
+            local[localIdx] = serverItem;
+          }
+        }
+      } else if (!serverItem.deleted_at) {
+        local.push(serverItem);
+      }
+    }
+
+    await chrome.storage.sync.set({ [key]: local });
+  },
+
+  async _mergeServerScripts(serverScripts) {
+    const local = await this._readChunked();
+
+    for (const serverScript of serverScripts) {
+      const localIdx = local.findIndex(l => l.id === serverScript.id);
+      if (localIdx >= 0) {
+        if (new Date(serverScript.updated_at) > new Date(local[localIdx].updated_at)) {
+          if (serverScript.deleted_at) {
+            local.splice(localIdx, 1);
+          } else {
+            local[localIdx] = serverScript;
+          }
+        }
+      } else if (!serverScript.deleted_at) {
+        local.push(serverScript);
+      }
+    }
+
+    await this._writeChunked(local);
   },
 };

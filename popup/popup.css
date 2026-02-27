@@ -335,6 +335,26 @@ footer a:hover {
   color: var(--accent);
 }
 
+.sync-status {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.sync-status #sync-indicator {
+  display: block;
+}
+
+.sync-status a {
+  font-size: 10px;
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.sync-status a:hover {
+  color: var(--accent-hover);
+}
+
 /* ─── Results ────────────────────────── */
 
 .results {

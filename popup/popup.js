@@ -259,6 +259,38 @@
     chrome.runtime.openOptionsPage();
   });
 
+  // ─── Sync status ──────────────────────────────────────
+  const syncStatus = document.getElementById('sync-status');
+  const syncIndicator = document.getElementById('sync-indicator');
+  const linkLogin = document.getElementById('link-login');
+
+  async function updateSyncStatus() {
+    try {
+      const auth = await sendToBackground({ type: 'GET_AUTH_STATUS' });
+      if (auth.authenticated) {
+        linkLogin.classList.add('hidden');
+        const lastSync = auth.lastSyncedAt
+          ? `Synced ${new Date(auth.lastSyncedAt).toLocaleTimeString()}`
+          : 'Not synced yet';
+        syncIndicator.textContent = `${auth.user?.name || 'Connected'} · ${lastSync}`;
+        syncIndicator.classList.remove('hidden');
+      } else {
+        syncIndicator.classList.add('hidden');
+        linkLogin.classList.remove('hidden');
+      }
+    } catch {
+      syncIndicator.classList.add('hidden');
+      linkLogin.classList.remove('hidden');
+    }
+  }
+
+  linkLogin.addEventListener('click', (e) => {
+    e.preventDefault();
+    chrome.tabs.create({ url: 'https://steno-web.test/auth/extension-login' });
+  });
+
+  updateSyncStatus();
+
   // ─── Recording events ───────────────────────────────────
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.type === 'FIELD_CAPTURED' || msg.type === 'STEP_CAPTURED') {
@@ -342,7 +374,17 @@
       fields: capturedFields,
     };
 
-    await sendToBackground({ type: 'SAVE_SCRIPT', script });
+    try {
+      await sendToBackground({ type: 'SAVE_SCRIPT', script });
+    } catch (err) {
+      const msg = err?.message || '';
+      if (msg.includes('Free plan') || msg.includes('Upgrade')) {
+        saveSiteHint.textContent = msg;
+        saveSiteHint.style.color = 'var(--danger)';
+        return;
+      }
+      throw err;
+    }
     capturedFields = [];
     await loadScripts();
     selectScript({ ...script, site_label: '', persona_name: '' });

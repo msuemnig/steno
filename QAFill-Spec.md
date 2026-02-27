@@ -325,7 +325,7 @@ The following features are explicitly out of scope for v1 but are accounted for 
 - Soft deletes (recover accidentally deleted profiles)
 
 **Auth:**
-- SSO via existing Adverscale/GovSwift identity provider
+- SSO via Google identity provider
 - Extension authenticates via OAuth token stored in `chrome.storage.local`
 
 **Team & Access Control:**

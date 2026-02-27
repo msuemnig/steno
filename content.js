@@ -14,6 +14,22 @@
 
   const CLICK_TARGETS = 'button, a, [role="button"], input[type="submit"], input[type="button"]';
 
+  // ─── Extension auth token listener ───────────────────────
+  // Listens for STENO_AUTH_TOKEN postMessage on the steno domain
+  if (window.location.hostname === 'steno-web.test' || window.location.hostname === 'localhost') {
+    window.addEventListener('message', (event) => {
+      if (event.source !== window) return;
+      if (event.data?.type !== 'STENO_AUTH_TOKEN') return;
+      if (!event.data.token || !event.data.user) return;
+
+      chrome.runtime.sendMessage({
+        type: 'SET_AUTH_TOKEN',
+        token: event.data.token,
+        user: event.data.user,
+      });
+    });
+  }
+
   // ─── Recording HUD ──────────────────────────────────────
 
   async function createOverlay() {
